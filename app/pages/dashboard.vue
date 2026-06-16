@@ -5,6 +5,31 @@ import { db, signOut } from '~/lib/firebase'
 import { useAuth } from '~/composables/useAuth'
 import { useToast } from '~/composables/useToast'
 import { requestDriveAccess, findOrCreateFolder } from '~/lib/gdrive'
+import { useTheme } from '~/composables/useTheme'
+
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js'
+import { Line } from 'vue-chartjs'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+)
 
 import { Button } from '~/components/ui/button'
 import { Card } from '~/components/ui/card'
@@ -17,7 +42,130 @@ definePageMeta({
 
 const { user } = useAuth()
 const toast = useToast()
+
+const { colorMode, themeColor } = useTheme()
+const primaryColor = ref('hsl(210, 100%, 44.5%)')
+
+function updateChartColor() {
+  if (typeof window !== 'undefined') {
+    setTimeout(() => {
+      const val = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()
+      if (val) {
+        primaryColor.value = `hsl(${val.replace(/\s+/g, ', ')})`
+      }
+    }, 50)
+  }
+}
+
+watch([colorMode, themeColor], () => {
+  updateChartColor()
+})
+
 const dumps = ref<any[]>([])
+
+const chartData = computed(() => {
+  const days = []
+  const volumes = [0, 0, 0, 0, 0, 0, 0]
+  
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    days.push(d.toLocaleDateString('en-US', { weekday: 'short' }))
+  }
+
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+
+  dumps.value.forEach(dump => {
+    if (dump.files && Array.isArray(dump.files)) {
+      dump.files.forEach(file => {
+        if (file.createdAt && file.size) {
+          let createdTime = file.createdAt
+          if (typeof file.createdAt.toMillis === 'function') {
+            createdTime = file.createdAt.toMillis()
+          } else if (typeof file.createdAt === 'object' && file.createdAt.seconds) {
+            createdTime = file.createdAt.seconds * 1000
+          }
+          
+          const diffTime = todayStart - new Date(createdTime).setHours(0,0,0,0)
+          const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24))
+          
+          const index = 6 - diffDays
+          if (index >= 0 && index <= 6) {
+            volumes[index] += file.size / (1024 * 1024)
+          }
+        }
+      })
+    }
+  })
+
+  const formattedVolumes = volumes.map(v => Number(v.toFixed(1)))
+
+  return {
+    labels: days,
+    datasets: [
+      {
+        label: 'Traffic Volume',
+        data: formattedVolumes,
+        borderColor: primaryColor.value,
+        backgroundColor: (context: any) => {
+          const chart = context.chart
+          const { ctx, chartArea } = chart
+          if (!chartArea) {
+            return null
+          }
+          const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+          const baseColor = primaryColor.value.replace('hsl(', '').replace(')', '')
+          gradient.addColorStop(0, `hsla(${baseColor}, 0.3)`)
+          gradient.addColorStop(1, `hsla(${baseColor}, 0)`)
+          return gradient
+        },
+        fill: true,
+        tension: 0.4,
+        borderWidth: 3.5,
+        pointRadius: 4,
+        pointBackgroundColor: primaryColor.value
+      }
+    ]
+  }
+})
+
+const chartOptions = computed(() => {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false
+      },
+      tooltip: {
+        mode: 'index',
+        intersect: false,
+      }
+    },
+    scales: {
+      x: {
+        display: true,
+        title: {
+          display: true,
+          text: 'Day of Week'
+        },
+        grid: {
+          display: false,
+        }
+      },
+      y: {
+        display: true,
+        title: {
+          display: true,
+          text: 'Volume (MB)'
+        },
+        beginAtZero: true
+      }
+    }
+  }
+})
+
 const selectedDump = ref<any | null>(null)
 
 // Google Drive configuration state
@@ -39,7 +187,8 @@ const isSavingGDrive = ref(false)
 // New Dump input states
 const newDumpTitle = ref('')
 const newDumpSlug = ref('')
-const newDumpTheme = ref('blue')
+const newDumpThemeColor = ref('blue')
+const newDumpThemeMode = ref('dark')
 const newDumpPrivacy = ref('Public (Anonymous)')
 const newDumpPassword = ref('')
 
@@ -47,10 +196,11 @@ const newDumpPassword = ref('')
 const editTitle = ref('')
 const editDescription = ref('')
 const editSlug = ref('')
-const editTheme = ref('blue')
 const editPrivacy = ref('Public (Anonymous)')
-const editPassword = ref('')
 const editStatus = ref('Live')
+const editPassword = ref('')
+const editThemeColor = ref('blue')
+const editThemeMode = ref('dark')
 
 const isLoading = ref(true)
 const isSaving = ref(false)
@@ -66,6 +216,7 @@ watch(newDumpTitle, (val) => {
 
 // Fetch all settings and dumps on mount
 onMounted(async () => {
+  updateChartColor()
   if (!user.value) return
   
   try {
@@ -233,7 +384,8 @@ async function fetchDumps() {
         id: docSnap.id,
         title: data.title || 'Untitled Dump',
         description: data.description || '',
-        theme: data.theme || 'blue',
+        themeColor: data.themeColor || 'blue',
+        themeMode: data.themeMode || 'dark',
         slug: data.slug || docSnap.id,
         status: data.status || 'Live', // 'Live' or 'Paused'
         privacy: data.privacy || 'Public (Anonymous)',
@@ -255,7 +407,8 @@ async function fetchDumps() {
 function openNewDumpModal() {
   newDumpTitle.value = ''
   newDumpSlug.value = ''
-  newDumpTheme.value = 'blue'
+  newDumpThemeColor.value = 'blue'
+  newDumpThemeMode.value = 'dark'
   newDumpPrivacy.value = 'Public (Anonymous)'
   newDumpPassword.value = ''
   showNewDumpModal.value = true
@@ -315,7 +468,8 @@ async function handleCreateDump() {
       creatorId: user.value.uid,
       title: newDumpTitle.value,
       description: 'Drop your favorite photos and videos here!',
-      theme: newDumpTheme.value,
+      themeColor: newDumpThemeColor.value,
+      themeMode: newDumpThemeMode.value,
       slug: currentSlug,
       status: 'Live',
       privacy: newDumpPrivacy.value,
@@ -339,15 +493,18 @@ async function handleCreateDump() {
 // Select a dump to configure
 function selectDump(dump: any) {
   selectedDump.value = dump
+  editTitle.value = dump.title || ''
+  editDescription.value = dump.description || ''
+  editSlug.value = dump.slug || ''
+  editPrivacy.value = dump.privacy || 'Public (Anonymous)'
+  editStatus.value = dump.status || 'Live'
+  editPassword.value = dump.password || ''
   
-  // Bind settings values
-  editTitle.value = dump.title
-  editDescription.value = dump.description
-  editSlug.value = dump.slug
-  editTheme.value = dump.theme
-  editPrivacy.value = dump.privacy
-  editPassword.value = dump.password
-  editStatus.value = dump.status
+  editThemeColor.value = dump.themeColor || 'blue'
+  editThemeMode.value = dump.themeMode || 'dark'
+  
+  showNewDumpModal.value = false
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 // Save configuration updates for active dump
@@ -395,15 +552,21 @@ async function handleSaveDumpConfig() {
     }
 
     // Update document
-    const dumpData = {
-      creatorId: user.value.uid,
+    const payload = {
       title: editTitle.value,
       description: editDescription.value,
-      theme: editTheme.value,
       slug: currentSlug,
-      status: editStatus.value,
       privacy: editPrivacy.value,
+      status: editStatus.value,
       password: editPassword.value,
+      themeColor: editThemeColor.value,
+      themeMode: editThemeMode.value,
+      updatedAt: Date.now()
+    }
+    
+    const dumpData = {
+      creatorId: user.value.uid,
+      ...payload,
       filesCount: selectedDump.value.filesCount,
       totalSize: selectedDump.value.totalSize,
       gdriveFolderId: selectedDump.value.gdriveFolderId
@@ -633,7 +796,7 @@ async function handleSignOut() {
               >
                 {{ isConnectingGoogle ? 'Authorizing...' : 'Connect Google Drive Account' }}
               </Button>
-              <div v-else class="flex items-center gap-3 w-full md:w-auto">
+              <div v-else class="flex flex-col items-end gap-3 w-full md:w-auto">
                 <div class="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-full text-emerald-400 text-xs font-semibold">
                   <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                   Drive Connected: {{ gdriveConfig.gdriveEmail }}
@@ -723,23 +886,14 @@ async function handleSignOut() {
           </div>
         </div>
 
-        <!-- Line Chart Traffic Mockup -->
+        <!-- Line Chart Traffic -->
         <div class="bg-card border border-border p-8 rounded-3xl shadow-xl space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="text-lg font-bold text-foreground">Creator Traffic & Storage Flow</h3>
             <span class="text-xs font-mono text-muted-foreground">Rolling 7-day volume</span>
           </div>
-          <div class="h-44 w-full relative pt-4">
-            <svg class="w-full h-full overflow-visible" viewBox="0 0 1000 150">
-              <defs>
-                <linearGradient id="chart-gradient-dash" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#0071e3" stop-opacity="0.3" />
-                  <stop offset="100%" stop-color="#0071e3" stop-opacity="0" />
-                </linearGradient>
-              </defs>
-              <path fill="url(#chart-gradient-dash)" d="M0,130 L166,110 L332,120 L498,60 L664,80 L830,30 L1000,45 L1000,150 L0,150 Z" />
-              <path fill="none" stroke="#0071e3" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" d="M0,130 L166,110 L332,120 L498,60 L664,80 L830,30 L1000,45" />
-            </svg>
+          <div class="h-64 w-full relative pt-4">
+            <Line :data="chartData" :options="chartOptions" />
           </div>
         </div>
 
@@ -865,22 +1019,55 @@ async function handleSignOut() {
                   <Input v-model="editPassword" type="password" placeholder="Enter access password" class="bg-secondary border-border text-foreground rounded-xl focus:border-primary h-11" />
                 </div>
 
-                <div class="space-y-2">
-                  <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Theme Profile</label>
-                  <div class="flex gap-3">
-                    <button 
-                      v-for="color in ['blue', 'dark', 'purple', 'rose']" 
-                      :key="color"
-                      class="w-8 h-8 rounded-full transition-transform hover:scale-110"
-                      :class="[
-                        color === 'blue' ? 'bg-primary' : '',
-                        color === 'dark' ? 'bg-secondary border border-border' : '',
-                        color === 'purple' ? 'bg-purple-600' : '',
-                        color === 'rose' ? 'bg-rose-500' : '',
-                        editTheme === color ? 'ring-2 ring-offset-2 ring-offset-black ring-primary' : ''
-                      ]"
-                      @click="editTheme = color"
-                    ></button>
+                <div class="space-y-4">
+                  <div class="space-y-2">
+                    <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Theme Color</label>
+                    <div class="flex gap-3">
+                      <button 
+                        v-for="color in ['zinc', 'red', 'orange', 'green', 'blue']" 
+                        :key="color"
+                        class="w-8 h-8 rounded-full transition-transform hover:scale-110"
+                        :class="[
+                          color === 'zinc' ? 'bg-zinc-900 dark:bg-zinc-100' : '',
+                          color === 'red' ? 'bg-red-500' : '',
+                          color === 'orange' ? 'bg-orange-500' : '',
+                          color === 'green' ? 'bg-green-600' : '',
+                          color === 'blue' ? 'bg-blue-600' : '',
+                          editThemeColor === color ? 'ring-2 ring-offset-2 ring-offset-background ring-primary' : ''
+                        ]"
+                        @click="editThemeColor = color"
+                      ></button>
+                    </div>
+                  </div>
+
+                  <div class="space-y-2">
+                    <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Appearance Mode</label>
+                    <div class="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        :class="editThemeMode === 'light' ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : 'text-muted-foreground hover:text-foreground'"
+                        @click="editThemeMode = 'light'"
+                      >
+                        Light
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        :class="editThemeMode === 'dark' ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : 'text-muted-foreground hover:text-foreground'"
+                        @click="editThemeMode = 'dark'"
+                      >
+                        Dark
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        :class="editThemeMode === 'auto' ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : 'text-muted-foreground hover:text-foreground'"
+                        @click="editThemeMode = 'auto'"
+                      >
+                        System Auto
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1066,14 +1253,35 @@ async function handleSignOut() {
               </select>
             </div>
             
-            <div class="space-y-2">
-              <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Theme Color</label>
-              <select v-model="newDumpTheme" class="w-full bg-secondary border border-border text-foreground text-sm rounded-xl px-3 py-2.5 outline-none focus:border-primary h-11">
-                <option value="blue">Blue</option>
-                <option value="dark">Dark</option>
-                <option value="purple">Purple</option>
-                <option value="rose">Rose</option>
-              </select>
+            <div class="space-y-4">
+              <div class="space-y-2">
+                <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Theme Color</label>
+                <div class="flex gap-2">
+                  <button 
+                    v-for="color in ['zinc', 'red', 'orange', 'green', 'blue']" 
+                    :key="color"
+                    class="w-6 h-6 rounded-full transition-transform hover:scale-110"
+                    :class="[
+                      color === 'zinc' ? 'bg-zinc-900 dark:bg-zinc-100' : '',
+                      color === 'red' ? 'bg-red-500' : '',
+                      color === 'orange' ? 'bg-orange-500' : '',
+                      color === 'green' ? 'bg-green-600' : '',
+                      color === 'blue' ? 'bg-blue-600' : '',
+                      newDumpThemeColor === color ? 'ring-2 ring-offset-2 ring-offset-background ring-primary' : ''
+                    ]"
+                    @click="newDumpThemeColor = color"
+                  ></button>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Mode</label>
+                <div class="flex gap-1">
+                  <Button size="xs" variant="outline" :class="newDumpThemeMode === 'light' ? 'bg-foreground text-background' : ''" @click="newDumpThemeMode = 'light'">L</Button>
+                  <Button size="xs" variant="outline" :class="newDumpThemeMode === 'dark' ? 'bg-foreground text-background' : ''" @click="newDumpThemeMode = 'dark'">D</Button>
+                  <Button size="xs" variant="outline" :class="newDumpThemeMode === 'auto' ? 'bg-foreground text-background' : ''" @click="newDumpThemeMode = 'auto'">A</Button>
+                </div>
+              </div>
             </div>
           </div>
 
