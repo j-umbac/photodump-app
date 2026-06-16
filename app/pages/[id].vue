@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen flex flex-col items-center p-6 font-sans transition-colors duration-500 w-full bg-background text-foreground">
+  <div class="min-h-screen flex flex-col items-center p-6 font-sans transition-colors duration-500 w-full" :class="dynamicThemeClasses">
     <div v-if="isLoading" class="flex flex-col items-center justify-center min-h-screen">
       <div class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
       <p class="mt-4 text-muted-foreground font-medium">Loading dump page...</p>
@@ -32,7 +32,7 @@
 
       <!-- Upload Area -->
       <div 
-        class="group relative p-12 border-2 border-dashed rounded-[32px] transition-all duration-500 mx-auto w-full border-border bg-card shadow-[0_8px_32px_rgba(0,0,0,0.04)] hover:border-primary/50"
+        class="group relative p-12 border-2 border-dashed rounded-[16px] transition-all duration-500 mx-auto w-full border-border bg-card shadow-[0_8px_32px_rgba(0,0,0,0.04)] hover:border-primary/50"
         @dragover.prevent
         @drop.prevent="handleDrop"
       >
@@ -112,7 +112,10 @@ import { db } from '~/lib/firebase'
 import { Button } from '~/components/ui/button'
 import { uploadFileToDrive, DriveAuthError } from '~/lib/gdrive'
 import { useToast } from '~/composables/useToast'
-import { useTheme } from '~/composables/useTheme'
+
+definePageMeta({
+  layout: 'dump'
+})
 
 const route = useRoute()
 const dumpId = route.params.id as string
@@ -122,28 +125,67 @@ const dumpDescription = ref('')
 const creatorId = ref('')
 const exists = ref(true)
 const isLoading = ref(true)
+const dumpData = ref<any>(null)
 
 const toast = useToast()
-const { themeColor } = useTheme() // allow global theme to be used, overriding any saved theme
+
+const dynamicThemeClasses = computed(() => {
+  const classes = ['bg-background', 'text-foreground']
+  if (dumpData.value) {
+    if (dumpData.value.themeColor) {
+      classes.push(`theme-${dumpData.value.themeColor}`)
+    } else if (dumpData.value.theme) {
+      if (['zinc', 'red', 'orange', 'green', 'blue'].includes(dumpData.value.theme)) {
+        classes.push(`theme-${dumpData.value.theme}`)
+      } else {
+        classes.push('theme-blue')
+      }
+    } else {
+      classes.push('theme-blue')
+    }
+    
+    if (dumpData.value.themeMode === 'light') {
+      // light mode
+    } else if (dumpData.value.themeMode === 'auto') {
+      if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        classes.push('dark')
+      }
+    } else {
+      classes.push('dark')
+    }
+  } else {
+    classes.push('theme-blue', 'dark')
+  }
+  return classes.join(' ')
+})
+
+let mediaQueryList: MediaQueryList | null = null
+function handleSystemThemeChange(e: MediaQueryListEvent) {
+  if (dumpData.value?.themeMode === 'auto') {
+    dumpData.value = { ...dumpData.value }
+  }
+}
 
 const files = ref<File[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const isUploading = ref(false)
 
 onMounted(async () => {
+  if (typeof window !== 'undefined') {
+    mediaQueryList = window.matchMedia('(prefers-color-scheme: dark)')
+    mediaQueryList.addEventListener('change', handleSystemThemeChange)
+  }
+
   try {
     const docRef = doc(db, 'dumps', dumpId)
     const docSnap = await getDoc(docRef)
     
     if (docSnap.exists()) {
       const data = docSnap.data()
+      dumpData.value = data
       dumpTitle.value = data.title || 'Untitled Dump'
       dumpDescription.value = data.description || ''
       creatorId.value = data.creatorId || ''
-      
-      // If we want the dump to dictate the theme unless overridden, we could set themeColor here.
-      // But the user requested a global theme customizer across all pages, 
-      // so we just rely on useTheme() handling it globally.
       
       exists.value = true
     } else {
@@ -154,6 +196,12 @@ onMounted(async () => {
     exists.value = false
   } finally {
     isLoading.value = false
+  }
+})
+
+onUnmounted(() => {
+  if (mediaQueryList) {
+    mediaQueryList.removeEventListener('change', handleSystemThemeChange)
   }
 })
 
