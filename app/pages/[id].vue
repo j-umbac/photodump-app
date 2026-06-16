@@ -73,8 +73,9 @@
           class="flex items-center justify-between p-4 rounded-2xl shadow-sm border transition-all bg-card border-border text-card-foreground"
         >
           <div class="flex items-center gap-4">
-            <div class="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground">
-              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground overflow-hidden">
+              <img v-if="file.type.startsWith('image/')" :src="getFilePreview(file)" class="w-full h-full object-cover" />
+              <svg v-else class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
               </svg>
             </div>
@@ -170,6 +171,15 @@ const files = ref<File[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const isUploading = ref(false)
 
+const previewUrls = new Map<File, string>()
+
+function getFilePreview(file: File) {
+  if (!previewUrls.has(file)) {
+    previewUrls.set(file, URL.createObjectURL(file))
+  }
+  return previewUrls.get(file)
+}
+
 onMounted(async () => {
   if (typeof window !== 'undefined') {
     mediaQueryList = window.matchMedia('(prefers-color-scheme: dark)')
@@ -203,6 +213,8 @@ onUnmounted(() => {
   if (mediaQueryList) {
     mediaQueryList.removeEventListener('change', handleSystemThemeChange)
   }
+  previewUrls.forEach(url => URL.revokeObjectURL(url))
+  previewUrls.clear()
 })
 
 function openFileDialog() {
@@ -227,6 +239,10 @@ function handleDrop(event: DragEvent) {
 
 function removeFile(file: File) {
   files.value = files.value.filter(f => f !== file)
+  if (previewUrls.has(file)) {
+    URL.revokeObjectURL(previewUrls.get(file)!)
+    previewUrls.delete(file)
+  }
 }
 
 async function handleUpload() {
@@ -297,6 +313,12 @@ async function handleUpload() {
     }, { merge: true })
 
     toast.success('Upload Complete', `${files.value.length} files successfully uploaded to Google Drive!`)
+    files.value.forEach(file => {
+      if (previewUrls.has(file)) {
+        URL.revokeObjectURL(previewUrls.get(file)!)
+        previewUrls.delete(file)
+      }
+    })
     files.value = []
   } catch (error: any) {
     console.error('Upload error:', error)
