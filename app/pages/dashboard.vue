@@ -3,6 +3,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore'
 import { db, signOut } from '~/lib/firebase'
 import { useAuth } from '~/composables/useAuth'
+import { useToast } from '~/composables/useToast'
 import { requestDriveAccess, findOrCreateFolder } from '~/lib/gdrive'
 
 import { Button } from '~/components/ui/button'
@@ -15,6 +16,7 @@ definePageMeta({
 })
 
 const { user } = useAuth()
+const toast = useToast()
 const dumps = ref<any[]>([])
 const selectedDump = ref<any | null>(null)
 
@@ -111,10 +113,10 @@ async function saveGDriveConfig() {
       gdriveFolderName: gdriveConfig.value.gdriveFolderName || 'Photodump',
       email: user.value.email
     }, { merge: true })
-    alert('Google Drive settings successfully updated!')
+    toast.success('Settings Saved', 'Google Drive settings successfully updated!')
   } catch (e) {
     console.error('Error saving Google Drive settings:', e)
-    alert('Failed to save settings. Please try again.')
+    toast.error('Settings Failed', 'Failed to save settings. Please try again.')
   } finally {
     isSavingGDrive.value = false
   }
@@ -176,6 +178,7 @@ async function connectGoogleDrive() {
       driveError.value = ''
     } else {
       driveError.value = error?.message || 'Failed to connect Google Drive. Please try again.'
+      toast.error('Connection Failed', driveError.value)
     }
   } finally {
     isConnectingGoogle.value = false
@@ -269,11 +272,11 @@ async function handleCreateDump() {
     .replace(/^-|-$/g, '')
 
   if (!newDumpTitle.value.trim()) {
-    alert('Please enter a Title.')
+    toast.warning('Missing Title', 'Please enter a Title.')
     return
   }
   if (!currentSlug) {
-    alert('Please enter a valid Custom Slug path.')
+    toast.warning('Missing Slug', 'Please enter a valid Custom Slug path.')
     return
   }
 
@@ -283,7 +286,7 @@ async function handleCreateDump() {
     const docSnap = await getDoc(docRef)
     
     if (docSnap.exists()) {
-      alert('This custom URL slug is already taken. Please try another one.')
+      toast.error('Slug Taken', 'This custom URL slug is already taken. Please try another one.')
       isSaving.value = false
       return
     }
@@ -301,7 +304,7 @@ async function handleCreateDump() {
       } catch (err: any) {
         console.warn('Google Drive subfolder creation failed:', err)
         if (err?.message?.includes('401') || err?.name === 'DriveAuthError') {
-          alert('Your Google Drive access has expired. Please re-authorize from the Google Drive card above, then try again.')
+          toast.error('Drive Expired', 'Your Google Drive access has expired. Please re-authorize from the Google Drive card above, then try again.')
           isSaving.value = false
           return
         }
@@ -324,10 +327,10 @@ async function handleCreateDump() {
 
     showNewDumpModal.value = false
     await fetchDumps()
-    alert('New PhotoDump created successfully!')
+    toast.success('Success', 'New PhotoDump created successfully!')
   } catch (error) {
     console.error('Error creating dump:', error)
-    alert('Failed to create new dump. Please try again.')
+    toast.error('Error', 'Failed to create new dump. Please try again.')
   } finally {
     isSaving.value = false
   }
@@ -358,11 +361,11 @@ async function handleSaveDumpConfig() {
     .replace(/^-|-$/g, '')
 
   if (!editTitle.value.trim()) {
-    alert('Dump Title cannot be empty.')
+    toast.warning('Missing Title', 'Dump Title cannot be empty.')
     return
   }
   if (!currentSlug) {
-    alert('Please enter a valid Custom Slug path.')
+    toast.warning('Missing Slug', 'Please enter a valid Custom Slug path.')
     return
   }
 
@@ -375,7 +378,7 @@ async function handleSaveDumpConfig() {
       const docRef = doc(db, 'dumps', currentSlug)
       const docSnap = await getDoc(docRef)
       if (docSnap.exists()) {
-        alert('This custom URL is already in use by another dump.')
+        toast.error('Slug Taken', 'This custom URL is already in use by another dump.')
         isSaving.value = false
         return
       }
@@ -408,12 +411,12 @@ async function handleSaveDumpConfig() {
     
     await setDoc(doc(db, 'dumps', currentSlug), dumpData)
     
-    alert('Dump configuration updated successfully!')
+    toast.success('Success', 'Dump configuration updated successfully!')
     await fetchDumps()
     selectedDump.value = dumps.value.find(d => d.id === currentSlug) || null
   } catch (error) {
     console.error('Error saving configuration:', error)
-    alert('Failed to save configuration. Please try again.')
+    toast.error('Error', 'Failed to save configuration. Please try again.')
   } finally {
     isSaving.value = false
   }
@@ -435,12 +438,12 @@ async function handleDeleteDump() {
     // Delete primary dump document
     await deleteDoc(doc(db, 'dumps', selectedDump.value.id))
     
-    alert('Dump deleted successfully.')
+    toast.success('Deleted', 'Dump deleted successfully.')
     selectedDump.value = null
     await fetchDumps()
   } catch (error) {
     console.error('Error deleting dump:', error)
-    alert('Failed to delete dump. Please try again.')
+    toast.error('Error', 'Failed to delete dump. Please try again.')
   } finally {
     isSaving.value = false
   }
@@ -468,14 +471,14 @@ async function deleteFile(fileId: string, filePath?: string) {
       totalSize: formatBytes(newBytes)
     }, { merge: true })
     
-    alert('File deleted successfully!')
+    toast.success('Deleted', 'File deleted successfully!')
     await fetchDumps()
     
     // Update active view
     selectedDump.value = dumps.value.find(d => d.id === selectedDump.value?.id) || null
   } catch (error) {
     console.error('Error deleting file:', error)
-    alert('Failed to delete file.')
+    toast.error('Error', 'Failed to delete file.')
   }
 }
 
@@ -494,7 +497,7 @@ const qrCodeUrl = computed(() => {
 function copyLink() {
   if (!publicUrl.value) return
   navigator.clipboard.writeText(publicUrl.value)
-  alert('Link copied to clipboard!')
+  toast.success('Copied', 'Link copied to clipboard!')
 }
 
 function downloadQrCode() {
@@ -526,7 +529,7 @@ async function handleSignOut() {
     await navigateTo('/login')
   } catch (error) {
     console.error('Sign-out error:', error)
-    alert('Sign-out failed. Please try again.')
+    toast.error('Error', 'Sign-out failed. Please try again.')
   }
 }
 </script>

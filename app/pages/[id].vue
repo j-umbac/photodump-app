@@ -33,20 +33,7 @@
         </p>
       </div>
 
-      <!-- Upload Error Banner -->
-      <div 
-        v-if="uploadError" 
-        class="w-full p-5 rounded-2xl border text-left flex items-start gap-3"
-        :class="theme === 'dark' 
-          ? 'bg-rose-500/10 border-rose-500/20' 
-          : 'bg-rose-50 border-rose-200'"
-      >
-        <svg class="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-        </svg>
-        <p class="text-sm" :class="theme === 'dark' ? 'text-rose-300' : 'text-rose-600'">{{ uploadError }}</p>
-      </div>
-
+      <!-- Replaced Upload Error Banner with Toast notifications -->
       <div 
         class="group relative p-12 border-2 border-dashed rounded-[32px] transition-all duration-500 mx-auto w-full"
         :class="[
@@ -144,6 +131,7 @@ import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore'
 import { db } from '~/lib/firebase'
 import { Button } from '~/components/ui/button'
 import { uploadFileToDrive, DriveAuthError } from '~/lib/gdrive'
+import { useToast } from '~/composables/useToast'
 
 const route = useRoute()
 const dumpId = route.params.id as string
@@ -154,7 +142,8 @@ const theme = ref('blue')
 const creatorId = ref('')
 const exists = ref(true)
 const isLoading = ref(true)
-const uploadError = ref('')
+
+const toast = useToast()
 
 const files = ref<File[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -237,12 +226,11 @@ function removeFile(file: File) {
 
 async function handleUpload() {
   if (files.value.length === 0) {
-    alert('Please select files to upload.')
+    toast.warning('No files selected', 'Please select files to upload.')
     return
   }
   
   isUploading.value = true
-  uploadError.value = ''
   
   try {
     // 1. Fetch creator's Google Drive sync settings
@@ -268,7 +256,7 @@ async function handleUpload() {
     }
 
     if (!gdriveConnected || !gdriveAccessToken || !gdriveFolderId) {
-      uploadError.value = 'Google Drive is not configured for this dump yet. Please ask the dump creator to connect Google Drive from their dashboard.'
+      toast.error('Google Drive not configured', 'Google Drive is not configured for this dump yet. Please ask the dump creator to connect Google Drive from their dashboard.')
       return
     }
 
@@ -308,16 +296,16 @@ async function handleUpload() {
       totalSizeBytes: totalSizeVal
     }, { merge: true })
 
-    alert(`${files.value.length} files successfully uploaded to Google Drive!`)
+    toast.success('Upload Complete', `${files.value.length} files successfully uploaded to Google Drive!`)
     files.value = []
   } catch (error: any) {
     console.error('Upload error:', error)
     if (error instanceof DriveAuthError || error?.message?.includes('401')) {
-      uploadError.value = 'The Google Drive access token has expired. Please ask the dump creator to re-authorize from their dashboard.'
+      toast.error('Upload Failed', 'The Google Drive access token has expired. Please ask the dump creator to re-authorize from their dashboard.')
     } else if (error?.message?.includes('not configured')) {
-      uploadError.value = error.message
+      toast.error('Upload Failed', error.message)
     } else {
-      uploadError.value = 'Upload failed. Please try again or contact the dump creator.'
+      toast.error('Upload Failed', 'Please try again or contact the dump creator.')
     }
   } finally {
     isUploading.value = false

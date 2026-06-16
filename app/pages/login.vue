@@ -45,18 +45,22 @@
 <script setup lang="ts">
 import { Button } from '~/components/ui/button'
 import { signInWithGoogle } from '~/lib/firebase'
+import { useToast } from '~/composables/useToast'
 
 definePageMeta({
   middleware: 'guest'
 })
 
+const toast = useToast()
+
 async function handleSignIn() {
   try {
     await signInWithGoogle()
+    toast.success('Welcome back!')
     await navigateTo('/dashboard')
   } catch (error) {
     console.error('Sign-in error:', error)
-    alert('Sign-in failed. Please try again.')
+    toast.error('Sign-in Failed', 'An error occurred during sign-in. Please try again.')
   }
 }
 </script>
