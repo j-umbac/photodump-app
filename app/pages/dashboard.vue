@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen bg-[#F5F5F7] text-foreground font-sans">
     <header class="sticky top-0 z-50 border-b border-zinc-200/50 bg-white/70 backdrop-blur-xl">
-      <div class="container flex items-center justify-between h-16 max-w-6xl px-6 mx-auto">
+      <div class="container flex items-center h-16 max-w-6xl px-6 mx-auto justify-between">
         <div class="flex items-center gap-2">
           <div class="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <span class="text-white font-bold text-lg">P</span>
