@@ -9,6 +9,14 @@ module.exports = {
     './app/**/*.{ts,tsx,vue}',
     './src/**/*.{ts,tsx,vue}',
   ],
+  safelist: [
+    'theme-zinc',
+    'theme-red',
+    'theme-orange',
+    'theme-green',
+    'theme-blue',
+    'dark'
+  ],
   prefix: "",
   theme: {
     container: {

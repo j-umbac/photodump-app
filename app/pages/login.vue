@@ -1,19 +1,19 @@
 <template>
-  <div class="flex flex-col items-center justify-center min-h-screen bg-[#F5F5F7] p-6 font-sans">
+  <div class="flex flex-col items-center justify-center min-h-screen bg-background p-6 font-sans">
     <div class="w-full max-w-[400px] space-y-12">
       <div class="flex flex-col items-center text-center space-y-4">
         <div class="w-16 h-16 rounded-2xl bg-primary shadow-lg shadow-primary/20 flex items-center justify-center mb-2">
-          <span class="text-white font-bold text-3xl">P</span>
+          <span class="text-primary-foreground font-bold text-3xl">P</span>
         </div>
-        <h1 class="text-4xl font-bold tracking-tight text-zinc-900">
+        <h1 class="text-4xl font-bold tracking-tight text-foreground">
           PhotoDump
         </h1>
-        <p class="text-lg text-zinc-500 max-w-[280px]">
+        <p class="text-lg text-muted-foreground max-w-[280px]">
           Create unique photo dumps and share memories effortlessly.
         </p>
       </div>
 
-      <Card class="p-2 border-zinc-100 shadow-[0_8px_32px_rgba(0,0,0,0.06)]">
+      <Card class="p-2 border-border shadow-[0_8px_32px_rgba(0,0,0,0.06)]">
         <CardContent class="pt-6 space-y-4">
           <Button class="w-full h-12 text-base font-semibold transition-all hover:scale-[1.01]" @click="handleSignIn">
             <svg class="w-5 h-5 mr-3" viewBox="0 0 24 24">
@@ -25,9 +25,9 @@
             Continue with Google
           </Button>
           <div class="relative flex items-center py-2">
-            <div class="flex-grow border-t border-zinc-100"></div>
-            <span class="flex-shrink mx-4 text-xs font-medium text-zinc-400 uppercase tracking-widest">or</span>
-            <div class="flex-grow border-t border-zinc-100"></div>
+            <div class="flex-grow border-t border-border"></div>
+            <span class="flex-shrink mx-4 text-xs font-medium text-muted-foreground uppercase tracking-widest">or</span>
+            <div class="flex-grow border-t border-border"></div>
           </div>
           <Button variant="secondary" class="w-full h-12 text-base font-semibold" disabled>
             Sign in with Email
@@ -35,7 +35,7 @@
         </CardContent>
       </Card>
 
-      <p class="text-center text-sm text-zinc-400">
+      <p class="text-center text-sm text-muted-foreground">
         By continuing, you agree to our <a href="#" class="text-primary hover:underline">Terms of Service</a>.
       </p>
     </div>
@@ -64,4 +64,3 @@ async function handleSignIn() {
   }
 }
 </script>
-

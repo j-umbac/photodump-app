@@ -22,11 +22,8 @@ export const useTheme = () => {
     const htmlEl = document.documentElement
     
     // Remove existing theme classes
-    htmlEl.classList.forEach(className => {
-      if (className.startsWith('theme-')) {
-        htmlEl.classList.remove(className)
-      }
-    })
+    const classesToRemove = Array.from(htmlEl.classList).filter(c => c.startsWith('theme-'))
+    classesToRemove.forEach(c => htmlEl.classList.remove(c))
     
     // Add new theme class
     htmlEl.classList.add(`theme-${color}`)
