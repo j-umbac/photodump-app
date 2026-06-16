@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen flex flex-col items-center p-6 font-sans transition-colors duration-500 w-full" :class="dynamicThemeClasses">
+  <div class="min-h-screen flex flex-col items-center p-6 transition-colors duration-500 w-full bg-background text-foreground font-sans" :class="dynamicThemeClasses" :style="customThemeStyles">
     <div v-if="isLoading" class="flex flex-col items-center justify-center min-h-screen">
       <div class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
       <p class="mt-4 text-muted-foreground font-medium">Loading dump page...</p>
@@ -20,19 +20,20 @@
       </div>
     </div>
 
-    <div v-else class="w-full max-w-2xl mt-20 space-y-12 text-center">
+    <div v-else class="w-full max-w-2xl mt-8 space-y-12 text-center">
       <div class="space-y-4">
-        <h1 class="text-5xl font-extrabold tracking-tight leading-tight">
+        <h1 class="text-5xl font-extrabold tracking-tight leading-tight" :style="{ fontFamily: `'${dumpData?.titleFont || dumpData?.fontFamily || 'Inter'}', sans-serif` }">
           {{ dumpTitle }}
         </h1>
-        <p class="text-xl font-medium max-w-lg mx-auto leading-relaxed text-muted-foreground">
+        <p class="text-xl font-medium max-w-lg mx-auto leading-relaxed text-muted-foreground" :style="{ fontFamily: `'${dumpData?.descFont || dumpData?.fontFamily || 'Inter'}', sans-serif` }">
           {{ dumpDescription }}
         </p>
       </div>
 
       <!-- Upload Area -->
       <div 
-        class="group relative p-12 border-2 border-dashed rounded-[16px] transition-all duration-500 mx-auto w-full border-border bg-card shadow-[0_8px_32px_rgba(0,0,0,0.04)] hover:border-primary/50"
+        class="group relative p-12 border-2 border-dashed rounded-[16px] transition-all duration-500 mx-auto w-full border-border bg-card hover:border-primary/50"
+        :style="{ boxShadow: '0 12px 40px hsl(var(--foreground) / 0.1)' }"
         @dragover.prevent
         @drop.prevent="handleDrop"
       >
@@ -43,8 +44,8 @@
             </svg>
           </div>
           <div class="space-y-2">
-            <h3 class="text-2xl font-bold text-card-foreground">Ready to dump?</h3>
-            <p class="font-medium text-muted-foreground">Drag and drop photos or videos here</p>
+            <h3 class="text-xl font-bold text-card-foreground">Ready to dump?</h3>
+            <p class="text-md font-medium text-muted-foreground">Drag and drop photos or videos here</p>
           </div>
           <div class="pt-2">
             <Button 
@@ -131,8 +132,8 @@ const dumpData = ref<any>(null)
 const toast = useToast()
 
 const dynamicThemeClasses = computed(() => {
-  const classes = ['bg-background', 'text-foreground']
-  if (dumpData.value) {
+  const classes = []
+  if (dumpData.value && !dumpData.value.customTheme) {
     if (dumpData.value.themeColor) {
       classes.push(`theme-${dumpData.value.themeColor}`)
     } else if (dumpData.value.theme) {
@@ -144,20 +145,84 @@ const dynamicThemeClasses = computed(() => {
     } else {
       classes.push('theme-blue')
     }
-    
+  }
+  
+  if (dumpData.value) {
     if (dumpData.value.themeMode === 'light') {
       // light mode
     } else if (dumpData.value.themeMode === 'auto') {
       if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
         classes.push('dark')
       }
-    } else {
+    } else if (dumpData.value.themeMode === 'dark') {
       classes.push('dark')
     }
   } else {
     classes.push('theme-blue', 'dark')
   }
   return classes.join(' ')
+})
+
+function hexToHSL(H: string) {
+  let r = 0, g = 0, b = 0;
+  if (H.length == 4) {
+    r = parseInt("0x" + H[1] + H[1], 16);
+    g = parseInt("0x" + H[2] + H[2], 16);
+    b = parseInt("0x" + H[3] + H[3], 16);
+  } else if (H.length == 7) {
+    r = parseInt("0x" + H[1] + H[2], 16);
+    g = parseInt("0x" + H[3] + H[4], 16);
+    b = parseInt("0x" + H[5] + H[6], 16);
+  }
+  r /= 255; g /= 255; b /= 255;
+  let cmin = Math.min(r,g,b), cmax = Math.max(r,g,b), delta = cmax - cmin, h = 0, s = 0, l = 0;
+
+  if (delta == 0) h = 0;
+  else if (cmax == r) h = ((g - b) / delta) % 6;
+  else if (cmax == g) h = (b - r) / delta + 2;
+  else h = (r - g) / delta + 4;
+
+  h = Math.round(h * 60);
+  if (h < 0) h += 360;
+
+  l = (cmax + cmin) / 2;
+  s = delta == 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+  s = +(s * 100).toFixed(1);
+  l = +(l * 100).toFixed(1);
+
+  return `${h} ${s}% ${l}%`;
+}
+
+const customThemeStyles = computed(() => {
+  if (!dumpData.value?.customTheme) return {}
+  const theme = dumpData.value.customTheme
+  return {
+    '--primary': hexToHSL(theme.primary),
+    '--secondary': hexToHSL(theme.secondary),
+    '--background': hexToHSL(theme.background),
+    '--foreground': hexToHSL(theme.text),
+    '--card': hexToHSL(theme.background),
+    '--card-foreground': hexToHSL(theme.text),
+    '--muted': hexToHSL(theme.secondary),
+    '--muted-foreground': hexToHSL(theme.text),
+    '--border': hexToHSL(theme.secondary),
+  }
+})
+
+useHead({
+  link: computed(() => {
+    const fonts = new Set([dumpData.value?.titleFont, dumpData.value?.descFont, dumpData.value?.fontFamily])
+    const links: any[] = []
+    fonts.forEach(font => {
+      if (font && font !== 'Inter' && font !== 'system-ui') {
+        links.push({
+          rel: 'stylesheet',
+          href: `https://fonts.googleapis.com/css2?family=${font.replace(/ /g, '+')}:wght@400;500;600;700;800&display=swap`
+        })
+      }
+    })
+    return links
+  })
 })
 
 let mediaQueryList: MediaQueryList | null = null

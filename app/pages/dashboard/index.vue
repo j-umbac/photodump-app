@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, doc, setDoc, getDoc } from 'firebase/firestore'
 import { db, signOut } from '~/lib/firebase'
 import { useAuth } from '~/composables/useAuth'
 import { useToast } from '~/composables/useToast'
@@ -34,7 +34,6 @@ ChartJS.register(
 import { Button } from '~/components/ui/button'
 import { Card } from '~/components/ui/card'
 import { Input } from '~/components/ui/input'
-import { Textarea } from '~/components/ui/textarea'
 
 definePageMeta({
   middleware: 'auth'
@@ -166,7 +165,43 @@ const chartOptions = computed(() => {
   }
 })
 
-const selectedDump = ref<any | null>(null)
+const newDumpTitle = ref('')
+const newDumpSlug = ref('')
+const newDumpThemeColor = ref('blue')
+const newDumpThemeMode = ref('dark')
+const newDumpPrivacy = ref('Public (Anonymous)')
+const newDumpPassword = ref('')
+
+const newDumpCustomTheme = ref({ primary: '#0071e3', secondary: '#f4f4f5', background: '#ffffff', text: '#000000' })
+const newDumpTitleFont = ref('Inter')
+const newDumpDescFont = ref('Inter')
+
+const availableFonts = [
+  'Inter', 'Playfair Display', 'Outfit', 'Lora', 'Space Grotesk', 'Caveat', 'JetBrains Mono', 'Cinzel',
+  'Roboto', 'Open Sans', 'Montserrat', 'Lato', 'Poppins', 'Nunito', 'Raleway', 'Oswald', 'Merriweather', 
+  'Quicksand', 'Work Sans', 'Fira Code', 'Pacifico', 'Dancing Script', 'Bebas Neue'
+]
+
+
+
+useHead({
+  link: computed(() => {
+    const fonts = new Set([newDumpTitleFont.value, newDumpDescFont.value])
+    const links: any[] = []
+    fonts.forEach(font => {
+      if (font && font !== 'Inter' && font !== 'system-ui') {
+        links.push({
+          rel: 'stylesheet',
+          href: `https://fonts.googleapis.com/css2?family=${font.replace(/ /g, '+')}:wght@400;500;600;700;800&display=swap`
+        })
+      }
+    })
+    return links
+  })
+})
+
+const isLoading = ref(true)
+const isSaving = ref(false)
 
 // Google Drive configuration state
 const gdriveConfig = ref({
@@ -183,27 +218,6 @@ const showNewDumpModal = ref(false)
 const isConnectingGoogle = ref(false)
 const driveError = ref('')
 const isSavingGDrive = ref(false)
-
-// New Dump input states
-const newDumpTitle = ref('')
-const newDumpSlug = ref('')
-const newDumpThemeColor = ref('blue')
-const newDumpThemeMode = ref('dark')
-const newDumpPrivacy = ref('Public (Anonymous)')
-const newDumpPassword = ref('')
-
-// Edit Dump input states
-const editTitle = ref('')
-const editDescription = ref('')
-const editSlug = ref('')
-const editPrivacy = ref('Public (Anonymous)')
-const editStatus = ref('Live')
-const editPassword = ref('')
-const editThemeColor = ref('blue')
-const editThemeMode = ref('dark')
-
-const isLoading = ref(true)
-const isSaving = ref(false)
 
 // Watch Title and update Slug automatically for New Dump
 watch(newDumpTitle, (val) => {
@@ -386,6 +400,9 @@ async function fetchDumps() {
         description: data.description || '',
         themeColor: data.themeColor || 'blue',
         themeMode: data.themeMode || 'dark',
+        customTheme: data.customTheme || { primary: '#0071e3', secondary: '#f4f4f5', background: '#ffffff', text: '#000000' },
+        titleFont: data.titleFont || data.fontFamily || 'Inter',
+        descFont: data.descFont || data.fontFamily || 'Inter',
         slug: data.slug || docSnap.id,
         status: data.status || 'Live', // 'Live' or 'Paused'
         privacy: data.privacy || 'Public (Anonymous)',
@@ -470,6 +487,9 @@ async function handleCreateDump() {
       description: 'Drop your favorite photos and videos here!',
       themeColor: newDumpThemeColor.value,
       themeMode: newDumpThemeMode.value,
+      customTheme: newDumpCustomTheme.value,
+      titleFont: newDumpTitleFont.value,
+      descFont: newDumpDescFont.value,
       slug: currentSlug,
       status: 'Live',
       privacy: newDumpPrivacy.value,
@@ -488,184 +508,6 @@ async function handleCreateDump() {
   } finally {
     isSaving.value = false
   }
-}
-
-// Select a dump to configure
-function selectDump(dump: any) {
-  selectedDump.value = dump
-  editTitle.value = dump.title || ''
-  editDescription.value = dump.description || ''
-  editSlug.value = dump.slug || ''
-  editPrivacy.value = dump.privacy || 'Public (Anonymous)'
-  editStatus.value = dump.status || 'Live'
-  editPassword.value = dump.password || ''
-  
-  editThemeColor.value = dump.themeColor || 'blue'
-  editThemeMode.value = dump.themeMode || 'dark'
-  
-  showNewDumpModal.value = false
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
-
-// Save configuration updates for active dump
-async function handleSaveDumpConfig() {
-  if (!user.value || !selectedDump.value) return
-  
-  const currentSlug = editSlug.value
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-
-  if (!editTitle.value.trim()) {
-    toast.warning('Missing Title', 'Dump Title cannot be empty.')
-    return
-  }
-  if (!currentSlug) {
-    toast.warning('Missing Slug', 'Please enter a valid Custom Slug path.')
-    return
-  }
-
-  isSaving.value = true
-  try {
-    const oldSlug = selectedDump.value.id
-    
-    // Check if slug changed
-    if (oldSlug !== currentSlug) {
-      const docRef = doc(db, 'dumps', currentSlug)
-      const docSnap = await getDoc(docRef)
-      if (docSnap.exists()) {
-        toast.error('Slug Taken', 'This custom URL is already in use by another dump.')
-        isSaving.value = false
-        return
-      }
-
-      // Move files in Firestore subcollection
-      const filesQuery = await getDocs(collection(db, 'dumps', oldSlug, 'files'))
-      for (const fileDoc of filesQuery.docs) {
-        await setDoc(doc(db, 'dumps', currentSlug, 'files', fileDoc.id), fileDoc.data())
-        await deleteDoc(doc(db, 'dumps', oldSlug, 'files', fileDoc.id))
-      }
-      
-      // Delete old parent document
-      await deleteDoc(doc(db, 'dumps', oldSlug))
-    }
-
-    // Update document
-    const payload = {
-      title: editTitle.value,
-      description: editDescription.value,
-      slug: currentSlug,
-      privacy: editPrivacy.value,
-      status: editStatus.value,
-      password: editPassword.value,
-      themeColor: editThemeColor.value,
-      themeMode: editThemeMode.value,
-      updatedAt: Date.now()
-    }
-    
-    const dumpData = {
-      creatorId: user.value.uid,
-      ...payload,
-      filesCount: selectedDump.value.filesCount,
-      totalSize: selectedDump.value.totalSize,
-      gdriveFolderId: selectedDump.value.gdriveFolderId
-    }
-    
-    await setDoc(doc(db, 'dumps', currentSlug), dumpData)
-    
-    toast.success('Success', 'Dump configuration updated successfully!')
-    await fetchDumps()
-    selectedDump.value = dumps.value.find(d => d.id === currentSlug) || null
-  } catch (error) {
-    console.error('Error saving configuration:', error)
-    toast.error('Error', 'Failed to save configuration. Please try again.')
-  } finally {
-    isSaving.value = false
-  }
-}
-
-// Delete Dump
-async function handleDeleteDump() {
-  if (!selectedDump.value) return
-  if (!confirm('Are you sure you want to delete this dump? This will permanently delete all associated metadata and files. This action is irreversible.')) return
-  
-  isSaving.value = true
-  try {
-    // Delete files in subcollection
-    const filesQuery = await getDocs(collection(db, 'dumps', selectedDump.value.id, 'files'))
-    for (const fileDoc of filesQuery.docs) {
-      await deleteDoc(doc(db, 'dumps', selectedDump.value.id, 'files', fileDoc.id))
-    }
-
-    // Delete primary dump document
-    await deleteDoc(doc(db, 'dumps', selectedDump.value.id))
-    
-    toast.success('Deleted', 'Dump deleted successfully.')
-    selectedDump.value = null
-    await fetchDumps()
-  } catch (error) {
-    console.error('Error deleting dump:', error)
-    toast.error('Error', 'Failed to delete dump. Please try again.')
-  } finally {
-    isSaving.value = false
-  }
-}
-
-// Delete Single File in Subcollection
-async function deleteFile(fileId: string, filePath?: string) {
-  if (!selectedDump.value) return
-  if (!confirm('Are you sure you want to delete this file?')) return
-  
-  try {
-    // 1. Delete from Firestore subcollection
-    await deleteDoc(doc(db, 'dumps', selectedDump.value.id, 'files', fileId))
-    
-    // 3. Update dump counts
-    const fileItem = selectedDump.value.files.find((f: any) => f.id === fileId)
-    const fileSize = fileItem?.size || 0
-    
-    const newFilesCount = Math.max(0, (selectedDump.value.filesCount || 1) - 1)
-    const currentBytes = selectedDump.value.totalSizeBytes || 0
-    const newBytes = Math.max(0, currentBytes - fileSize)
-    
-    await setDoc(doc(db, 'dumps', selectedDump.value.id), {
-      filesCount: newFilesCount,
-      totalSize: formatBytes(newBytes)
-    }, { merge: true })
-    
-    toast.success('Deleted', 'File deleted successfully!')
-    await fetchDumps()
-    
-    // Update active view
-    selectedDump.value = dumps.value.find(d => d.id === selectedDump.value?.id) || null
-  } catch (error) {
-    console.error('Error deleting file:', error)
-    toast.error('Error', 'Failed to delete file.')
-  }
-}
-
-// URL & Sharing Computed Properties
-const publicUrl = computed(() => {
-  if (!selectedDump.value) return ''
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-  return `${origin}/${selectedDump.value.slug}`
-})
-
-const qrCodeUrl = computed(() => {
-  if (!selectedDump.value) return ''
-  return `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(publicUrl.value)}`
-})
-
-function copyLink() {
-  if (!publicUrl.value) return
-  navigator.clipboard.writeText(publicUrl.value)
-  toast.success('Copied', 'Link copied to clipboard!')
-}
-
-function downloadQrCode() {
-  if (!qrCodeUrl.value) return
-  window.open(qrCodeUrl.value, '_blank')
 }
 
 // Calculate total storage size across all dumps
@@ -702,7 +544,7 @@ async function handleSignOut() {
     <!-- Header -->
     <header class="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-2xl transition-all duration-300">
       <div class="container max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div class="flex items-center gap-2 cursor-pointer" @click="selectedDump = null">
+        <div class="flex items-center gap-2 cursor-pointer">
           <div class="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
             <span class="text-foreground font-extrabold text-lg tracking-tighter">P</span>
           </div>
@@ -730,16 +572,13 @@ async function handleSignOut() {
             ● Creator Portal
           </div>
           <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight text-foreground">
-            {{ selectedDump ? `Configuring Dump` : 'Creator Dashboard' }}
+            Creator Dashboard
           </h1>
           <p class="text-sm text-muted-foreground">
-            {{ selectedDump ? `Manage page settings, custom URLs, and files for ${selectedDump.title}` : 'Manage your public media collections and storage integrations.' }}
+            Manage your public media collections and storage integrations.
           </p>
         </div>
         <div class="flex gap-3">
-          <Button v-if="selectedDump" variant="outline" class="border-border text-muted-foreground hover:text-foreground hover:bg-secondary" @click="selectedDump = null">
-            ← Back to Overview
-          </Button>
           <Button class="bg-primary text-primary-foreground hover:bg-primary/90" @click="openNewDumpModal">
             + New Dump
           </Button>
@@ -747,7 +586,7 @@ async function handleSignOut() {
       </div>
 
       <!-- OVERVIEW MODE -->
-      <div v-if="!selectedDump" class="space-y-12 animate-fade-in">
+      <div class="space-y-12 animate-fade-in">
         <!-- Stats Row -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
           <div class="bg-card border border-border p-6 rounded-2xl shadow-xl flex flex-col justify-between h-32">
@@ -948,264 +787,15 @@ async function handleSignOut() {
                     </span>
                   </td>
                   <td class="px-8 py-5 text-right">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      class="border-border hover:bg-secondary text-foreground/80 hover:text-foreground"
-                      @click="selectDump(dump)"
-                    >
-                      Configure Settings
-                    </Button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- DETAILED CONFIGURATION MODE -->
-      <div v-else class="space-y-12 animate-fade-in">
-        <!-- Configuration Card Row -->
-        <div class="grid md:grid-cols-2 gap-8">
-          <!-- Dump Settings Configuration -->
-          <Card class="bg-card border-border p-8 rounded-3xl shadow-xl flex flex-col justify-between">
-            <div class="space-y-6">
-              <div>
-                <h3 class="text-xl font-bold text-foreground">Configuration Details</h3>
-                <p class="text-xs text-muted-foreground mt-1">Adjust title, colors, and accessibility defaults.</p>
-              </div>
-
-              <div class="space-y-4">
-                <div class="space-y-2">
-                  <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Dump Page Title</label>
-                  <Input v-model="editTitle" placeholder="e.g. Wedding Highlights" class="bg-secondary border-border text-foreground rounded-xl focus:border-primary h-11" />
-                </div>
-
-                <div class="space-y-2">
-                  <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Description / Caption</label>
-                  <Textarea v-model="editDescription" placeholder="Drop your favorite moments here..." class="bg-secondary border-border text-foreground rounded-xl focus:border-primary min-h-[90px]" />
-                </div>
-
-                <div class="space-y-2">
-                  <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Custom Slug Route</label>
-                  <div class="flex items-center gap-2 bg-secondary px-3 py-1 border border-border rounded-xl focus-within:border-primary transition-colors">
-                    <span class="text-muted-foreground font-mono text-sm select-none">/</span>
-                    <input v-model="editSlug" class="bg-transparent border-none outline-none text-foreground font-mono text-sm py-2 flex-1" />
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-2 gap-4">
-                  <div class="space-y-2">
-                    <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Access Privacy</label>
-                    <select v-model="editPrivacy" class="w-full bg-secondary border border-border text-foreground text-sm rounded-xl px-3 py-2.5 outline-none focus:border-primary h-11">
-                      <option>Public (Anonymous)</option>
-                      <option>Password Protected</option>
-                      <option>Private (Approval only)</option>
-                    </select>
-                  </div>
-
-                  <div class="space-y-2">
-                    <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Dump Status</label>
-                    <select v-model="editStatus" class="w-full bg-secondary border border-border text-foreground text-sm rounded-xl px-3 py-2.5 outline-none focus:border-primary h-11">
-                      <option>Live</option>
-                      <option>Paused</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div v-if="editPrivacy === 'Password Protected'" class="space-y-2">
-                  <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Access Password</label>
-                  <Input v-model="editPassword" type="password" placeholder="Enter access password" class="bg-secondary border-border text-foreground rounded-xl focus:border-primary h-11" />
-                </div>
-
-                <div class="space-y-4">
-                  <div class="space-y-2">
-                    <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Theme Color</label>
-                    <div class="flex gap-3">
-                      <button 
-                        v-for="color in ['zinc', 'red', 'orange', 'green', 'blue']" 
-                        :key="color"
-                        class="w-8 h-8 rounded-full transition-transform hover:scale-110"
-                        :class="[
-                          color === 'zinc' ? 'bg-zinc-900 dark:bg-zinc-100' : '',
-                          color === 'red' ? 'bg-red-500' : '',
-                          color === 'orange' ? 'bg-orange-500' : '',
-                          color === 'green' ? 'bg-green-600' : '',
-                          color === 'blue' ? 'bg-blue-600' : '',
-                          editThemeColor === color ? 'ring-2 ring-offset-2 ring-offset-background ring-primary' : ''
-                        ]"
-                        @click="editThemeColor = color"
-                      ></button>
-                    </div>
-                  </div>
-
-                  <div class="space-y-2">
-                    <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Appearance Mode</label>
-                    <div class="flex gap-2">
+                    <NuxtLink :to="`/dashboard/${dump.id}`">
                       <Button 
-                        size="sm" 
                         variant="outline" 
-                        :class="editThemeMode === 'light' ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : 'text-muted-foreground hover:text-foreground'"
-                        @click="editThemeMode = 'light'"
-                      >
-                        Light
-                      </Button>
-                      <Button 
                         size="sm" 
-                        variant="outline" 
-                        :class="editThemeMode === 'dark' ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : 'text-muted-foreground hover:text-foreground'"
-                        @click="editThemeMode = 'dark'"
+                        class="border-border hover:bg-secondary text-foreground/80 hover:text-foreground"
                       >
-                        Dark
+                        Configure Settings
                       </Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        :class="editThemeMode === 'auto' ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : 'text-muted-foreground hover:text-foreground'"
-                        @click="editThemeMode = 'auto'"
-                      >
-                        System Auto
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="pt-8 flex justify-between items-center">
-              <Button variant="destructive" class="bg-destructive/10 hover:bg-destructive/20 text-destructive border-none" @click="handleDeleteDump">
-                Delete Dump
-              </Button>
-              <Button class="bg-primary text-primary-foreground hover:bg-primary/90 px-8" :disabled="isSaving" @click="handleSaveDumpConfig">
-                {{ isSaving ? 'Saving Changes...' : 'Save Configuration' }}
-              </Button>
-            </div>
-          </Card>
-
-          <!-- Sync destination & QR Sharing -->
-          <div class="space-y-8">
-            <Card class="bg-card border-border p-8 rounded-3xl shadow-xl space-y-6">
-              <div>
-                <h3 class="text-xl font-bold text-foreground">Google Drive Destination</h3>
-                <p class="text-xs text-muted-foreground mt-1">Files uploaded by users will route directly to this path.</p>
-              </div>
-
-              <div class="space-y-4">
-                <div class="row-between card bg-secondary/40 p-4 border border-border rounded-2xl flex items-center justify-between">
-                  <div class="flex items-center gap-3">
-                    <svg class="w-6 h-6 text-primary" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
-                    </svg>
-                    <span class="text-sm font-semibold text-foreground">Google Drive Sync Status</span>
-                  </div>
-                  <span 
-                    class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase tracking-wider"
-                    :class="gdriveConfig.gdriveConnected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-secondary/80 text-muted-foreground'"
-                  >
-                    {{ gdriveConfig.gdriveConnected ? 'Active' : 'Unconfigured' }}
-                  </span>
-                </div>
-
-                <div class="space-y-2">
-                  <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Active Folder Path</label>
-                  <div class="bg-secondary border border-border px-4 py-3 rounded-xl font-mono text-sm text-foreground/80 select-all truncate">
-                    /{{ gdriveConfig.gdriveFolderName || 'Photodump' }}/{{ editTitle || 'Untitled Dump' }}
-                  </div>
-                  <p class="text-[11px] text-muted-foreground leading-relaxed">
-                    Once synced, each file lands in the folder path above. Subfolders are generated dynamically.
-                  </p>
-                </div>
-              </div>
-            </Card>
-
-            <Card class="bg-card border-border p-8 rounded-3xl shadow-xl space-y-6">
-              <div>
-                <h3 class="text-xl font-bold text-foreground">QR Code & Link Share</h3>
-                <p class="text-xs text-muted-foreground mt-1">Distribute to attendees or clients to collect files.</p>
-              </div>
-
-              <div class="flex flex-col items-center justify-center p-6 rounded-2xl bg-secondary/40 border border-border">
-                <div class="w-36 h-36 bg-white p-3 rounded-xl shadow-inner flex items-center justify-center border border-zinc-200 overflow-hidden">
-                  <img v-if="qrCodeUrl" :src="qrCodeUrl" alt="QR Code" class="w-full h-full object-contain" />
-                  <div v-else class="w-full h-full bg-zinc-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-10 h-10 text-foreground/80 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
-                  </div>
-                </div>
-                <p class="mt-4 text-[11px] font-mono text-muted-foreground select-all truncate max-w-full px-2 text-center">{{ publicUrl }}</p>
-              </div>
-
-              <div class="grid grid-cols-2 gap-4">
-                <Button variant="outline" class="border-border text-foreground/80 hover:text-foreground hover:bg-secondary" @click="downloadQrCode">Open QR Page</Button>
-                <Button variant="outline" class="border-border text-foreground/80 hover:text-foreground hover:bg-secondary" @click="copyLink">Copy Page Link</Button>
-              </div>
-            </Card>
-          </div>
-        </div>
-
-        <!-- Files Uploaded Section -->
-        <div class="bg-card border border-border rounded-3xl shadow-xl overflow-hidden">
-          <div class="px-8 py-6 border-b border-border flex justify-between items-center">
-            <h3 class="text-lg font-bold text-foreground">Uploaded Files</h3>
-            <span class="text-xs font-mono text-muted-foreground">{{ selectedDump.files?.length || 0 }} files total</span>
-          </div>
-
-          <div v-if="!selectedDump.files || selectedDump.files.length === 0" class="p-16 text-center space-y-4">
-            <div class="w-16 h-16 bg-secondary rounded-2xl flex items-center justify-center mx-auto text-muted-foreground/80">
-              <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div class="space-y-1">
-              <h4 class="text-base font-semibold text-foreground/80">No media uploaded yet</h4>
-              <p class="text-sm text-muted-foreground max-w-sm mx-auto">Once contributors start uploading files to this dump page, they will show up here.</p>
-            </div>
-          </div>
-
-          <div v-else class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
-              <thead>
-                <tr class="border-b border-border text-xs font-mono uppercase text-muted-foreground tracking-wider">
-                  <th class="px-8 py-4">File Name</th>
-                  <th class="px-6 py-4">File Size</th>
-                  <th class="px-6 py-4">Date Uploaded</th>
-                  <th class="px-6 py-4">Storage Sync</th>
-                  <th class="px-8 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="file in selectedDump.files" :key="file.id" class="border-b border-border hover:hover:bg-secondary/20 transition-colors">
-                  <td class="px-8 py-4 font-bold text-foreground max-w-xs truncate">{{ file.name }}</td>
-                  <td class="px-6 py-4 font-mono text-muted-foreground text-sm">{{ formatBytes(file.size) }}</td>
-                  <td class="px-6 py-4 font-mono text-muted-foreground text-xs">{{ file.createdAt ? new Date(file.createdAt).toLocaleDateString() : 'N/A' }}</td>
-                  <td class="px-6 py-4">
-                    <span 
-                      class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase tracking-wider"
-                      :class="file.synced ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'"
-                    >
-                      {{ file.synced ? 'Synced' : 'Pending' }}
-                    </span>
-                  </td>
-                  <td class="px-8 py-4 text-right">
-                    <div class="flex items-center justify-end gap-2">
-                      <a 
-                        v-if="file.url"
-                        :href="file.url" 
-                        target="_blank" 
-                        download
-                        class="h-8 gap-1 rounded-full px-3 inline-flex items-center justify-center border border-border text-xs text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors"
-                      >
-                        Download
-                      </a>
-                      <Button 
-                        variant="destructive" 
-                        size="xs"
-                        class="bg-destructive/10 hover:bg-destructive/20 text-destructive px-3 border-none"
-                        @click="deleteFile(file.id, file.storagePath)"
-                      >
-                        Delete
-                      </Button>
-                    </div>
+                    </NuxtLink>
                   </td>
                 </tr>
               </tbody>
@@ -1254,32 +844,39 @@ async function handleSignOut() {
             </div>
             
             <div class="space-y-4">
-              <div class="space-y-2">
-                <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Theme Color</label>
-                <div class="flex gap-2">
-                  <button 
-                    v-for="color in ['zinc', 'red', 'orange', 'green', 'blue']" 
-                    :key="color"
-                    class="w-6 h-6 rounded-full transition-transform hover:scale-110"
-                    :class="[
-                      color === 'zinc' ? 'bg-zinc-900 dark:bg-zinc-100' : '',
-                      color === 'red' ? 'bg-red-500' : '',
-                      color === 'orange' ? 'bg-orange-500' : '',
-                      color === 'green' ? 'bg-green-600' : '',
-                      color === 'blue' ? 'bg-blue-600' : '',
-                      newDumpThemeColor === color ? 'ring-2 ring-offset-2 ring-offset-background ring-primary' : ''
-                    ]"
-                    @click="newDumpThemeColor = color"
-                  ></button>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="space-y-2">
+                  <label class="text-[10px] font-mono uppercase text-muted-foreground font-bold tracking-wider">Title Font</label>
+                  <select v-model="newDumpTitleFont" class="w-full bg-secondary border border-border text-foreground text-sm rounded-xl px-2 py-2 outline-none focus:border-primary h-10">
+                    <option v-for="font in availableFonts" :key="font" :value="font">{{ font }}</option>
+                  </select>
+                </div>
+                <div class="space-y-2">
+                  <label class="text-[10px] font-mono uppercase text-muted-foreground font-bold tracking-wider">Desc Font</label>
+                  <select v-model="newDumpDescFont" class="w-full bg-secondary border border-border text-foreground text-sm rounded-xl px-2 py-2 outline-none focus:border-primary h-10">
+                    <option v-for="font in availableFonts" :key="font" :value="font">{{ font }}</option>
+                  </select>
                 </div>
               </div>
-
               <div class="space-y-2">
-                <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Mode</label>
-                <div class="flex gap-1">
-                  <Button size="xs" variant="outline" :class="newDumpThemeMode === 'light' ? 'bg-foreground text-background' : ''" @click="newDumpThemeMode = 'light'">L</Button>
-                  <Button size="xs" variant="outline" :class="newDumpThemeMode === 'dark' ? 'bg-foreground text-background' : ''" @click="newDumpThemeMode = 'dark'">D</Button>
-                  <Button size="xs" variant="outline" :class="newDumpThemeMode === 'auto' ? 'bg-foreground text-background' : ''" @click="newDumpThemeMode = 'auto'">A</Button>
+                <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Theme Colors</label>
+                <div class="grid grid-cols-4 gap-2">
+                  <div class="space-y-1">
+                    <label class="text-[10px] uppercase text-muted-foreground block text-center">Primary</label>
+                    <input type="color" v-model="newDumpCustomTheme.primary" class="w-full h-8 rounded cursor-pointer border-0 p-0" />
+                  </div>
+                  <div class="space-y-1">
+                    <label class="text-[10px] uppercase text-muted-foreground block text-center">Second</label>
+                    <input type="color" v-model="newDumpCustomTheme.secondary" class="w-full h-8 rounded cursor-pointer border-0 p-0" />
+                  </div>
+                  <div class="space-y-1">
+                    <label class="text-[10px] uppercase text-muted-foreground block text-center">Bg</label>
+                    <input type="color" v-model="newDumpCustomTheme.background" class="w-full h-8 rounded cursor-pointer border-0 p-0" />
+                  </div>
+                  <div class="space-y-1">
+                    <label class="text-[10px] uppercase text-muted-foreground block text-center">Text</label>
+                    <input type="color" v-model="newDumpCustomTheme.text" class="w-full h-8 rounded cursor-pointer border-0 p-0" />
+                  </div>
                 </div>
               </div>
             </div>
