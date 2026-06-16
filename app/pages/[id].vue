@@ -33,6 +33,20 @@
         </p>
       </div>
 
+      <!-- Upload Error Banner -->
+      <div 
+        v-if="uploadError" 
+        class="w-full p-5 rounded-2xl border text-left flex items-start gap-3"
+        :class="theme === 'dark' 
+          ? 'bg-rose-500/10 border-rose-500/20' 
+          : 'bg-rose-50 border-rose-200'"
+      >
+        <svg class="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+        </svg>
+        <p class="text-sm" :class="theme === 'dark' ? 'text-rose-300' : 'text-rose-600'">{{ uploadError }}</p>
+      </div>
+
       <div 
         class="group relative p-12 border-2 border-dashed rounded-[32px] transition-all duration-500 mx-auto w-full"
         :class="[
@@ -126,10 +140,10 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from '#app'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore'
 import { db } from '~/lib/firebase'
 import { Button } from '~/components/ui/button'
-import { uploadFileToDrive } from '~/lib/gdrive'
+import { uploadFileToDrive, DriveAuthError } from '~/lib/gdrive'
 
 const route = useRoute()
 const dumpId = route.params.id as string
@@ -137,8 +151,10 @@ const dumpId = route.params.id as string
 const dumpTitle = ref('')
 const dumpDescription = ref('')
 const theme = ref('blue')
+const creatorId = ref('')
 const exists = ref(true)
 const isLoading = ref(true)
+const uploadError = ref('')
 
 const files = ref<File[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -154,6 +170,7 @@ onMounted(async () => {
       dumpTitle.value = data.title || 'Untitled Dump'
       dumpDescription.value = data.description || ''
       theme.value = data.theme || 'blue'
+      creatorId.value = data.creatorId || ''
       exists.value = true
     } else {
       exists.value = false
@@ -225,18 +242,96 @@ async function handleUpload() {
   }
   
   isUploading.value = true
+  uploadError.value = ''
+  
   try {
-    for (const file of files.value) {
-      await uploadFileToDrive(file, dumpId)
+    // 1. Fetch creator's Google Drive sync settings
+    let gdriveConnected = false
+    let gdriveAccessToken = ''
+    let gdriveFolderId = ''
+    
+    if (creatorId.value) {
+      const userDocRef = doc(db, 'users', creatorId.value)
+      const userDocSnap = await getDoc(userDocRef)
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data()
+        gdriveConnected = userData.gdriveConnected || false
+        gdriveAccessToken = userData.gdriveAccessToken || ''
+      }
+      
+      // Get the dump-specific subfolder ID
+      const dumpDocRef = doc(db, 'dumps', dumpId)
+      const dumpSnap = await getDoc(dumpDocRef)
+      if (dumpSnap.exists()) {
+        gdriveFolderId = dumpSnap.data().gdriveFolderId || ''
+      }
     }
-    alert(`${files.value.length} files successfully uploaded!`)
+
+    if (!gdriveConnected || !gdriveAccessToken || !gdriveFolderId) {
+      uploadError.value = 'Google Drive is not configured for this dump yet. Please ask the dump creator to connect Google Drive from their dashboard.'
+      return
+    }
+
+    // 2. Upload files one-by-one
+    for (const file of files.value) {
+      const uploadResult = await uploadFileToDrive(file, dumpId, {
+        gdriveConnected,
+        gdriveAccessToken,
+        gdriveFolderId,
+        creatorId: creatorId.value,
+        dumpTitle: dumpTitle.value
+      })
+
+      // Write file metadata record into Firestore subcollection
+      const fileId = uploadResult.id || `file-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+      await setDoc(doc(db, 'dumps', dumpId, 'files', fileId), {
+        name: file.name,
+        size: file.size,
+        url: uploadResult.url,
+        synced: uploadResult.synced,
+        createdAt: Date.now()
+      })
+    }
+
+    // 3. Recalculate metrics on parent dump document
+    const filesQuery = await getDocs(collection(db, 'dumps', dumpId, 'files'))
+    const filesCount = filesQuery.size
+    let totalSizeVal = 0
+    filesQuery.forEach(f => {
+      totalSizeVal += f.data().size || 0
+    })
+
+    const dumpDocRef = doc(db, 'dumps', dumpId)
+    await setDoc(dumpDocRef, {
+      filesCount,
+      totalSize: formatBytes(totalSizeVal),
+      totalSizeBytes: totalSizeVal
+    }, { merge: true })
+
+    alert(`${files.value.length} files successfully uploaded to Google Drive!`)
     files.value = []
-  } catch (error) {
+  } catch (error: any) {
     console.error('Upload error:', error)
-    alert('Upload failed. Please try again.')
+    if (error instanceof DriveAuthError || error?.message?.includes('401')) {
+      uploadError.value = 'The Google Drive access token has expired. Please ask the dump creator to re-authorize from their dashboard.'
+    } else if (error?.message?.includes('not configured')) {
+      uploadError.value = error.message
+    } else {
+      uploadError.value = 'Upload failed. Please try again or contact the dump creator.'
+    }
   } finally {
     isUploading.value = false
   }
+}
+
+function formatBytes(bytes: number, decimals = 1) {
+  if (bytes === 0) return '0 MB'
+  const k = 1024
+  const dm = decimals < 0 ? 0 : decimals
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  if (i < 2) return '0.1 MB'
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
 }
 </script>
 
