@@ -3,6 +3,13 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
   modules: ['@nuxtjs/tailwindcss'],
+  components: [
+    {
+      path: '~/components',
+      pathPrefix: false,
+      ignore: ['**/ui/**'],
+    },
+  ],
   css: ['~/assets/css/tailwind.css'],
   app: {
     pageTransition: { name: 'page', mode: 'out-in' }
