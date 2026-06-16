@@ -18,7 +18,8 @@ const db = getFirestore(app);
 
 if (import.meta.dev) {
   connectFirestoreEmulator(db, '127.0.0.1', 8080);
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+  // Auth emulator disabled so real Google OAuth works for Google Drive Sync
+  // connectAuthEmulator(auth, 'http://127.0.0.1:9099');
 }
 
 const provider = new GoogleAuthProvider();
