@@ -1,0 +1,6 @@
+allowBuilds:
+  '@firebase/util': set this to true or false
+  '@parcel/watcher': true
+  esbuild: true
+  protobufjs: set this to true or false
+  vue-demi: true
