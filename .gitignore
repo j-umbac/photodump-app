@@ -22,3 +22,10 @@ logs
 .env
 .env.*
 !.env.example
+
+# Firebase
+.firebase/
+firebase-export-*/
+firebase-debug.log
+firebase-debug.*.log
+ui-debug.log
