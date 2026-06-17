@@ -1,6 +1,6 @@
 <template>
-  <div class="flex flex-col items-center justify-center min-h-screen bg-background p-6 font-sans">
-    <div class="w-full max-w-[400px] space-y-12">
+  <div class="flex flex-col items-center justify-center min-h-[100dvh] w-full flex-1 bg-background p-6 font-sans">
+    <div class="w-full max-w-[400px] space-y-6">
       <div class="flex flex-col items-center text-center space-y-4">
         <div class="w-16 h-16 rounded-2xl bg-primary shadow-lg shadow-primary/20 flex items-center justify-center mb-2">
           <span class="text-primary-foreground font-bold text-3xl">P</span>
@@ -13,8 +13,8 @@
         </p>
       </div>
 
-      <Card class="p-2 border-border shadow-[0_8px_32px_rgba(0,0,0,0.06)]">
-        <CardContent class="pt-6 space-y-4">
+      <Card class="p-2 border-border shadow-[0_8px_32px_rgba(0,0,0,0.06)] bg-card">
+        <CardContent class="py-6 space-y-4">
           <Button class="w-full h-12 text-base font-semibold transition-all hover:scale-[1.01]" @click="handleSignIn">
             <svg class="w-5 h-5 mr-3" viewBox="0 0 24 24">
               <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -34,16 +34,20 @@
           </Button>
         </CardContent>
       </Card>
-
-      <p class="text-center text-sm text-muted-foreground">
-        By continuing, you agree to our <a href="#" class="text-primary hover:underline">Terms of Service</a>.
-      </p>
+      <div class="w-full text-center">
+        <NuxtLink to="/">
+          <Button variant="outline" class="border-border text-muted-foreground hover:text-foreground hover:bg-secondary">
+            <Icon name="material-symbols:line-start-arrow"/>Back to Home
+          </Button>
+        </NuxtLink>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { Button } from '~/components/ui/button'
+import { Card, CardContent } from '~/components/ui/card'
 import { signInWithGoogle } from '~/lib/firebase'
 import { useToast } from '~/composables/useToast'
 

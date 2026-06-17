@@ -4,7 +4,7 @@ import { collection, query, where, getDocs, doc, setDoc, getDoc } from 'firebase
 import { db, signOut } from '~/lib/firebase'
 import { useAuth } from '~/composables/useAuth'
 import { useToast } from '~/composables/useToast'
-import { requestDriveAccess, findOrCreateFolder } from '~/lib/gdrive'
+import { requestDriveAccessCode, exchangeCodeForTokens, findOrCreateFolder } from '~/lib/gdrive'
 import { useTheme } from '~/composables/useTheme'
 
 import {
@@ -41,6 +41,7 @@ definePageMeta({
 
 const { user } = useAuth()
 const toast = useToast()
+const config = useRuntimeConfig()
 
 const { colorMode, themeColor } = useTheme()
 const primaryColor = ref('hsl(210, 100%, 44.5%)')
@@ -207,7 +208,7 @@ const isSaving = ref(false)
 const gdriveConfig = ref({
   gdriveConnected: false,
   gdriveApiKey: '',
-  gdriveAccessToken: '',
+  gdriveRefreshToken: '',
   gdriveEmail: '',
   gdriveFolderId: '',
   gdriveFolderName: 'Photodump'
@@ -253,7 +254,7 @@ async function fetchGDriveConfig() {
       gdriveConfig.value = {
         gdriveConnected: data.gdriveConnected || false,
         gdriveApiKey: data.gdriveApiKey || '',
-        gdriveAccessToken: data.gdriveAccessToken || '',
+        gdriveRefreshToken: data.gdriveRefreshToken || '',
         gdriveEmail: data.gdriveEmail || '',
         gdriveFolderId: data.gdriveFolderId || '',
         gdriveFolderName: data.gdriveFolderName || 'Photodump'
@@ -272,7 +273,7 @@ async function saveGDriveConfig() {
     await setDoc(doc(db, 'users', user.value.uid), {
       gdriveConnected: gdriveConfig.value.gdriveConnected,
       gdriveApiKey: gdriveConfig.value.gdriveApiKey,
-      gdriveAccessToken: gdriveConfig.value.gdriveAccessToken,
+      gdriveRefreshToken: gdriveConfig.value.gdriveRefreshToken,
       gdriveEmail: gdriveConfig.value.gdriveEmail,
       gdriveFolderId: gdriveConfig.value.gdriveFolderId,
       gdriveFolderName: gdriveConfig.value.gdriveFolderName || 'Photodump',
@@ -294,17 +295,20 @@ async function connectGoogleDrive() {
   driveError.value = ''
   
   try {
-    // 1. Open Google consent screen with Drive scope
-    const { accessToken, email } = await requestDriveAccess()
+    // 1. Open Google consent screen with Drive scope (gets auth code)
+    const code = await requestDriveAccessCode(config.public.googleClientId)
     
-    // 2. Create (or find) the root "Photodump" folder on Drive
+    // 2. Exchange code for real tokens on the backend
+    const { accessToken, refreshToken, email } = await exchangeCodeForTokens(code)
+
+    // 3. Create (or find) the root "Photodump" folder on Drive
     const folderName = gdriveConfig.value.gdriveFolderName || 'Photodump'
     const rootFolderId = await findOrCreateFolder(folderName, accessToken)
     
-    // 3. Store real credentials
+    // 4. Store real credentials (refresh token)
     gdriveConfig.value.gdriveConnected = true
     gdriveConfig.value.gdriveEmail = email
-    gdriveConfig.value.gdriveAccessToken = accessToken
+    gdriveConfig.value.gdriveRefreshToken = refreshToken
     gdriveConfig.value.gdriveFolderId = rootFolderId
     
     // 4. Persist to Firestore
@@ -361,7 +365,7 @@ async function disconnectGoogleDrive() {
   if (!confirm('Are you sure you want to disconnect Google Drive? Uploaded files will remain on Drive but new uploads will stop working.')) return
   
   gdriveConfig.value.gdriveConnected = false
-  gdriveConfig.value.gdriveAccessToken = ''
+  gdriveConfig.value.gdriveRefreshToken = ''
   gdriveConfig.value.gdriveApiKey = ''
   gdriveConfig.value.gdriveEmail = ''
   gdriveConfig.value.gdriveFolderId = ''
@@ -463,12 +467,19 @@ async function handleCreateDump() {
 
     // Create subfolder on Google Drive if connected
     let gdriveSubfolderId = ''
-    if (gdriveConfig.value.gdriveConnected && gdriveConfig.value.gdriveAccessToken && gdriveConfig.value.gdriveFolderId) {
+    if (gdriveConfig.value.gdriveConnected && gdriveConfig.value.gdriveRefreshToken && gdriveConfig.value.gdriveFolderId) {
       try {
         const parentId = gdriveConfig.value.gdriveFolderId
+        // We need a fresh access token for finding/creating the folder here, 
+        // but for simplicity, we could fetch it via refreshAccessToken or we can just 
+        // ignore creating the subfolder right now since uploadFileToDrive will create it or we can import refreshAccessToken.
+        // Let's import refreshAccessToken dynamically or rely on the upload function to handle it.
+        const { refreshAccessToken } = await import('~/lib/gdrive')
+        const freshAccessToken = await refreshAccessToken(gdriveConfig.value.gdriveRefreshToken)
+        
         gdriveSubfolderId = await findOrCreateFolder(
           newDumpTitle.value,
-          gdriveConfig.value.gdriveAccessToken,
+          freshAccessToken,
           parentId
         )
       } catch (err: any) {
@@ -670,11 +681,11 @@ async function handleSignOut() {
               </div>
 
               <div class="space-y-2">
-                <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Google Drive Access Token (Optional)</label>
+                <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Google Drive Refresh Token (Optional)</label>
                 <Input 
-                  v-model="gdriveConfig.gdriveAccessToken" 
+                  v-model="gdriveConfig.gdriveRefreshToken" 
                   type="password" 
-                  placeholder="Paste OAuth access token for manual override" 
+                  placeholder="Paste OAuth refresh token for manual override" 
                   class="bg-secondary border-border text-foreground rounded-xl focus:border-primary h-11"
                 />
               </div>
@@ -841,44 +852,6 @@ async function handleSignOut() {
                 <option>Password Protected</option>
                 <option>Private (Approval only)</option>
               </select>
-            </div>
-            
-            <div class="space-y-4">
-              <div class="grid grid-cols-2 gap-2">
-                <div class="space-y-2">
-                  <label class="text-[10px] font-mono uppercase text-muted-foreground font-bold tracking-wider">Title Font</label>
-                  <select v-model="newDumpTitleFont" class="w-full bg-secondary border border-border text-foreground text-sm rounded-xl px-2 py-2 outline-none focus:border-primary h-10">
-                    <option v-for="font in availableFonts" :key="font" :value="font">{{ font }}</option>
-                  </select>
-                </div>
-                <div class="space-y-2">
-                  <label class="text-[10px] font-mono uppercase text-muted-foreground font-bold tracking-wider">Desc Font</label>
-                  <select v-model="newDumpDescFont" class="w-full bg-secondary border border-border text-foreground text-sm rounded-xl px-2 py-2 outline-none focus:border-primary h-10">
-                    <option v-for="font in availableFonts" :key="font" :value="font">{{ font }}</option>
-                  </select>
-                </div>
-              </div>
-              <div class="space-y-2">
-                <label class="text-xs font-mono uppercase text-muted-foreground font-bold tracking-wider">Theme Colors</label>
-                <div class="grid grid-cols-4 gap-2">
-                  <div class="space-y-1">
-                    <label class="text-[10px] uppercase text-muted-foreground block text-center">Primary</label>
-                    <input type="color" v-model="newDumpCustomTheme.primary" class="w-full h-8 rounded cursor-pointer border-0 p-0" />
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-[10px] uppercase text-muted-foreground block text-center">Second</label>
-                    <input type="color" v-model="newDumpCustomTheme.secondary" class="w-full h-8 rounded cursor-pointer border-0 p-0" />
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-[10px] uppercase text-muted-foreground block text-center">Bg</label>
-                    <input type="color" v-model="newDumpCustomTheme.background" class="w-full h-8 rounded cursor-pointer border-0 p-0" />
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-[10px] uppercase text-muted-foreground block text-center">Text</label>
-                    <input type="color" v-model="newDumpCustomTheme.text" class="w-full h-8 rounded cursor-pointer border-0 p-0" />
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 

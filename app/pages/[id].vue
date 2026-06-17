@@ -61,6 +61,20 @@
         </div>
       </div>
 
+      <!-- Upload Progress -->
+      <div v-if="isUploading" class="w-full space-y-3 pt-6 animate-fade-in text-left">
+        <div class="flex justify-between text-sm font-semibold text-muted-foreground px-1">
+          <span>Uploading {{ uploadProgress.count }} of {{ files.length }} files...</span>
+          <span>{{ Math.round(uploadProgress.percent) }}%</span>
+        </div>
+        <div class="h-3 w-full bg-secondary rounded-full overflow-hidden shadow-inner border border-border">
+          <div 
+            class="h-full bg-primary transition-all duration-300 ease-out rounded-full shadow-[0_0_10px_rgba(0,0,0,0.2)]" 
+            :style="{ width: `${uploadProgress.percent}%` }"
+          ></div>
+        </div>
+      </div>
+
       <!-- File List Container -->
       <transition-group 
         v-if="files.length > 0" 
@@ -103,11 +117,12 @@
         </Button>
       </div>
     </div>
+    <Footer class="mt-auto -mb-6"/>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from '#app'
 import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore'
 import { db } from '~/lib/firebase'
@@ -193,12 +208,43 @@ function hexToHSL(H: string) {
   return `${h} ${s}% ${l}%`;
 }
 
+function getAccessibleColor(bgHex: string, defaultTextHex: string) {
+  const getLum = (H: string) => {
+    let r = 0, g = 0, b = 0;
+    if (H.length == 4) {
+      r = parseInt("0x" + H[1] + H[1], 16);
+      g = parseInt("0x" + H[2] + H[2], 16);
+      b = parseInt("0x" + H[3] + H[3], 16);
+    } else if (H.length == 7) {
+      r = parseInt("0x" + H[1] + H[2], 16);
+      g = parseInt("0x" + H[3] + H[4], 16);
+      b = parseInt("0x" + H[5] + H[6], 16);
+    }
+    const a = [r, g, b].map(function (v) {
+        v /= 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow( (v + 0.055) / 1.055, 2.4 );
+    });
+    return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+  }
+  
+  const bgLum = getLum(bgHex);
+  const textLum = getLum(defaultTextHex);
+  const contrast = (Math.max(bgLum, textLum) + 0.05) / (Math.min(bgLum, textLum) + 0.05);
+  
+  if (contrast < 4.0) {
+    return bgLum > 0.5 ? '#000000' : '#ffffff';
+  }
+  return defaultTextHex;
+}
+
 const customThemeStyles = computed(() => {
   if (!dumpData.value?.customTheme) return {}
   const theme = dumpData.value.customTheme
   return {
     '--primary': hexToHSL(theme.primary),
+    '--primary-foreground': hexToHSL(getAccessibleColor(theme.primary, theme.text)),
     '--secondary': hexToHSL(theme.secondary),
+    '--secondary-foreground': hexToHSL(getAccessibleColor(theme.secondary, theme.text)),
     '--background': hexToHSL(theme.background),
     '--foreground': hexToHSL(theme.text),
     '--card': hexToHSL(theme.background),
@@ -235,6 +281,7 @@ function handleSystemThemeChange(e: MediaQueryListEvent) {
 const files = ref<File[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const isUploading = ref(false)
+const uploadProgress = ref({ count: 0, percent: 0 })
 
 const previewUrls = new Map<File, string>()
 
@@ -327,50 +374,52 @@ async function handleUpload() {
   isUploading.value = true
   
   try {
-    let gdriveConnected = false
-    let gdriveAccessToken = ''
-    let gdriveFolderId = ''
-    
-    if (creatorId.value) {
-      const userDocRef = doc(db, 'users', creatorId.value)
-      const userDocSnap = await getDoc(userDocRef)
-      if (userDocSnap.exists()) {
-        const userData = userDocSnap.data()
-        gdriveConnected = userData.gdriveConnected || false
-        gdriveAccessToken = userData.gdriveAccessToken || ''
-      }
-      
-      const dumpDocRef = doc(db, 'dumps', dumpId)
-      const dumpSnap = await getDoc(dumpDocRef)
-      if (dumpSnap.exists()) {
-        gdriveFolderId = dumpSnap.data().gdriveFolderId || ''
-      }
-    }
+    // 1. Get a fresh upload token from the server (securely exchanges refresh token)
+    const tokenResponse = await fetch('/api/drive/upload-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dumpId })
+    })
 
-    if (!gdriveConnected || !gdriveAccessToken || !gdriveFolderId) {
-      toast.error('Google Drive not configured', 'Google Drive is not configured for this dump yet. Please ask the dump creator to connect Google Drive from their dashboard.')
+    if (!tokenResponse.ok) {
+      const errorData = await tokenResponse.json().catch(() => ({}))
+      const message = errorData.statusMessage || 'Failed to get upload credentials'
+      
+      if (tokenResponse.status === 401) {
+        toast.error('Token Expired', 'The Google Drive access has expired. Please ask the dump creator to re-authorize from their dashboard.')
+      } else if (tokenResponse.status === 400) {
+        toast.error('Drive Not Configured', message)
+      } else {
+        toast.error('Upload Failed', message)
+      }
       return
     }
 
-    for (const file of files.value) {
-      const uploadResult = await uploadFileToDrive(file, dumpId, {
-        gdriveConnected,
-        gdriveAccessToken,
-        gdriveFolderId,
-        creatorId: creatorId.value,
-        dumpTitle: dumpTitle.value
-      })
+    const { accessToken, gdriveFolderId } = await tokenResponse.json()
 
-      const fileId = uploadResult.id || `file-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+    // 2. Upload files one-by-one directly to Google Drive
+    const { uploadFileToGoogleDrive } = await import('~/lib/gdrive')
+    
+    uploadProgress.value = { count: 0, percent: 0 }
+
+    for (let i = 0; i < files.value.length; i++) {
+      const file = files.value[i]
+      const result = await uploadFileToGoogleDrive(file, gdriveFolderId, accessToken)
+      
+      const fileId = result.id || `file-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
       await setDoc(doc(db, 'dumps', dumpId, 'files', fileId), {
         name: file.name,
         size: file.size,
-        url: uploadResult.url,
-        synced: uploadResult.synced,
+        url: result.webViewLink,
+        synced: true,
         createdAt: Date.now()
       })
+      
+      uploadProgress.value.count = i + 1
+      uploadProgress.value.percent = ((i + 1) / files.value.length) * 100
     }
 
+    // 3. Recalculate metrics on parent dump document
     const filesQuery = await getDocs(collection(db, 'dumps', dumpId, 'files'))
     const filesCount = filesQuery.size
     let totalSizeVal = 0

@@ -2,7 +2,7 @@
   <div class="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30 selection:text-foreground">
     <!-- Top Nav -->
     <header class="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/85 backdrop-blur-2xl transition-all duration-300">
-      <div class="container max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="container w-full mx-auto px-6 h-16 flex items-center justify-between">
         <div class="flex items-center gap-2 cursor-pointer" @click="navigateTo('/')">
           <div class="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
             <span class="text-primary-foreground font-extrabold text-lg tracking-tighter">P</span>
@@ -32,15 +32,11 @@
       <!-- Hero Section -->
       <section class="relative overflow-hidden py-24 md:py-36 flex items-center justify-center">
         <!-- Radial Ambient Glow -->
-        <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-primary/10 blur-[120px] rounded-full pointer-events-none"></div>
+        <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-primary/10 dark:bg-foreground/10 blur-[120px] rounded-full pointer-events-none"
+        ></div>
 
         <div class="container max-w-4xl mx-auto px-6 text-center relative z-10 space-y-8">
-          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border bg-secondary/50 backdrop-blur-md text-xs font-mono text-primary tracking-wide animate-fade-in">
-            <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-            Cinematic Media Collection
-          </div>
-          
-          <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight text-foreground leading-[1.08] max-w-3xl mx-auto">
+          <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight text-primary leading-[1.08] max-w-3xl mx-auto">
             Anonymous Dumps.<br />Professional Quality.
           </h1>
           
@@ -74,7 +70,7 @@
               {{ error }}
             </p>
             <p class="text-xs text-muted-foreground font-mono mt-3">
-              Type a custom link and press Go to initialize a public upload page instantly.
+              Type a custom link and press Go to create a dump.
             </p>
           </div>
 
@@ -158,7 +154,7 @@
 
               <div class="pt-6">
                 <Button variant="secondary" size="lg" class="rounded-full" @click="navigateTo('/dashboard')">
-                  Explore Demo Dashboard
+                  Explore Dashboard
                 </Button>
               </div>
             </div>
@@ -204,18 +200,6 @@
         </div>
       </section>
     </main>
-
-    <!-- Footer -->
-    <footer class="border-t border-border py-12 text-muted-foreground text-xs">
-      <div class="container max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
-        <span>© 2026 PhotoDump Pro. All rights reserved.</span>
-        <div class="flex items-center gap-6">
-          <a class="hover:text-foreground transition-colors">Terms</a>
-          <a class="hover:text-foreground transition-colors">Privacy</a>
-          <a class="hover:text-foreground transition-colors">Support</a>
-        </div>
-      </div>
-    </footer>
   </div>
 </template>
 
@@ -265,7 +249,7 @@ function handleCreateDump() {
 
   error.value = ''
   // Navigate directly to public upload page
-  router.push(`/${urlSafeName}`)
+  router.push("/login")
 }
 
 function navigateTo(path: string) {

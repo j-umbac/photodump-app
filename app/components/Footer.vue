@@ -3,8 +3,8 @@
 </script>
 
 <template>
-    <footer class="w-full border-t bg-background/50 backdrop-blur">
-        <div class="container max-w-6xl mx-auto px-6 h-16 flex items-center justify-between text-sm text-muted-foreground">
+    <footer class="w-full border-t bg-background">
+        <div class="container max-w-6xl mx-auto px-6 h-16 flex items-center justify-between text-sm text-muted-foreground bg-background">
             <p>
                 Created by <a href="https://github.com/j-umbac" target="_blank" class="font-medium hover:text-primary transition-colors hover:underline">Joshua</a>
             </p>

@@ -1,35 +1,72 @@
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
-import { auth } from '~/lib/firebase'
-
 // ---------------------------------------------------------------------------
-// 1. OAuth — Request Google Drive access via Firebase signInWithPopup
+// 1. OAuth — Request Google Drive access via Google Identity Services
 // ---------------------------------------------------------------------------
 
 /**
- * Opens the Google consent screen requesting the `drive.file` scope.
- * Returns the real OAuth2 access token and the user's email.
+ * Opens the Google consent screen requesting the `drive.file` scope and offline access.
+ * Returns the authorization code which can be exchanged for tokens.
  */
-export async function requestDriveAccess(): Promise<{
-  accessToken: string
-  email: string
-}> {
-  const provider = new GoogleAuthProvider()
-  provider.addScope('https://www.googleapis.com/auth/drive.file')
+export function requestDriveAccessCode(clientId: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // @ts-ignore - Google Identity Services adds google to window
+    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+      reject(new Error('Google Identity Services script not loaded.'));
+      return;
+    }
 
-  // Force the consent prompt so Google always shows the Drive permission screen
-  provider.setCustomParameters({ prompt: 'consent' })
+    // @ts-ignore
+    const client = window.google.accounts.oauth2.initCodeClient({
+      client_id: clientId,
+      scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+      ux_mode: 'popup',
+      callback: (response: any) => {
+        if (response.error) {
+          reject(new Error(response.error_description || response.error));
+          return;
+        }
+        resolve(response.code);
+      },
+    });
 
-  const result = await signInWithPopup(auth, provider)
-  const credential = GoogleAuthProvider.credentialFromResult(result)
+    client.requestCode();
+  });
+}
 
-  if (!credential?.accessToken) {
-    throw new Error('Failed to obtain Google Drive access token from sign-in.')
+/**
+ * Exchanges the auth code for a refresh token and access token on the backend.
+ */
+export async function exchangeCodeForTokens(code: string): Promise<{ accessToken: string; refreshToken: string; email: string }> {
+  const response = await fetch('/api/drive/authorize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.statusMessage || 'Failed to exchange authorization code');
   }
 
-  return {
-    accessToken: credential.accessToken,
-    email: result.user.email || ''
+  return response.json();
+}
+
+/**
+ * Fetches a fresh access token using the refresh token via the backend.
+ */
+export async function refreshAccessToken(refreshToken: string): Promise<string> {
+  const response = await fetch('/api/drive/refresh-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new DriveAuthError(errorData.statusMessage || 'Failed to refresh token');
   }
+
+  const data = await response.json();
+  return data.accessToken;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +219,7 @@ export async function uploadFileToDrive(
   dumpId: string,
   config?: {
     gdriveConnected: boolean
-    gdriveAccessToken?: string
+    gdriveRefreshToken?: string
     gdriveFolderId?: string
     creatorId: string
     dumpTitle: string
@@ -191,7 +228,7 @@ export async function uploadFileToDrive(
   // Require a real Google Drive connection
   if (
     !config?.gdriveConnected ||
-    !config?.gdriveAccessToken ||
+    !config?.gdriveRefreshToken ||
     !config?.gdriveFolderId
   ) {
     throw new Error(
@@ -199,11 +236,14 @@ export async function uploadFileToDrive(
     )
   }
 
-  // Upload to the dump's subfolder on Google Drive
+  // 1. Get a fresh access token using the refresh token
+  const freshAccessToken = await refreshAccessToken(config.gdriveRefreshToken);
+
+  // 2. Upload to the dump's subfolder on Google Drive
   const result = await uploadFileToGoogleDrive(
     file,
     config.gdriveFolderId,
-    config.gdriveAccessToken
+    freshAccessToken
   )
 
   return {

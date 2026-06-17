@@ -448,7 +448,7 @@ function downloadQrCode() {
         <div class="flex gap-3">
           <NuxtLink to="/dashboard">
             <Button variant="outline" class="border-border text-muted-foreground hover:text-foreground hover:bg-secondary">
-              ← Back to Overview
+              <Icon name="material-symbols:line-start-arrow"/> Back to Overview
             </Button>
           </NuxtLink>
         </div>
