@@ -8,15 +8,17 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "emulators": "npx firebase-tools emulators:start"
+    "emulators": "npx firebase-tools emulators:start --import=./emulator-data --export-on-exit"
   },
   "dependencies": {
     "@lucide/vue": "^1.18.0",
+    "@nuxt/icon": "^2.2.3",
     "@vueuse/core": "^14.3.0",
     "chart.js": "^4.5.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^12.14.0",
+    "firebase-admin": "^14.0.0",
     "nuxt": "^4.4.8",
     "reka-ui": "^2.9.10",
     "tailwind-merge": "^3.6.0",
